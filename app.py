@@ -3,6 +3,15 @@ from zxcvbn import zxcvbn
 import hashlib
 import requests
 import threading
+import logging
+import secrets
+from requests.exceptions import RequestException, Timeout, ConnectionError
+from urllib3.exceptions import InsecureRequestWarning
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 # ==============================================================================
 # SECTION 1: GLOBAL CONFIGURATION & THEME CONSTANTS
@@ -30,7 +39,11 @@ class ProfessionalSecurityScanner(ctk.CTk):
         self.configure(fg_color=COLOR_BG_DARK)
 
         self.api_timer = None
-        self.password_visible = False # State tracker for the Toggle Eye Button
+        self.api_thread = None
+        self.password_visible = False
+        self.session = requests.Session()
+        self.session.verify = True
+        self.session.headers.update({'User-Agent': 'PinnacleSecureScanner/1.0'})
 
         # --- Sub-Section 2.1: Header Architecture ---
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -139,9 +152,16 @@ class ProfessionalSecurityScanner(ctk.CTk):
             self.password_visible = True
 
     def clear_indicators(self):
-        # Cleans out the center frame before injecting new dynamic alerts
         for widget in self.center_indicators_frame.winfo_children():
             widget.destroy()
+
+    def cleanup(self):
+        if self.api_timer:
+            self.after_cancel(self.api_timer)
+        if self.api_thread and self.api_thread.is_alive():
+            self.api_thread.join(timeout=2)
+        self.session.close()
+        logger.info("Application cleanup completed")
 
     def update_center_status_alerts(self, score):
         self.clear_indicators()
@@ -165,7 +185,6 @@ class ProfessionalSecurityScanner(ctk.CTk):
         if self.api_timer:
             self.after_cancel(self.api_timer)
 
-        # Handle Empty State Reset
         if not pwd:
             self.strength_bar.set(0)
             self.strength_bar.configure(progress_color="gray")
@@ -178,41 +197,45 @@ class ProfessionalSecurityScanner(ctk.CTk):
             self.breach_status_icon.configure(text="📡")
             self.breach_text_label.configure(text="Scan status: Initializing...")
             self.breach_panel.configure(border_color=COLOR_BORDER)
-            
+
             self.clear_indicators()
             ctk.CTkLabel(self.center_indicators_frame, text="📡 INITIALIZING SCAN ARCHITECTURE", font=("Arial", 12), text_color=COLOR_TEXT_DIM).pack()
             return
 
-        # Execute zxcvbn Local Analysis
-        analysis = zxcvbn(pwd)
-        score = analysis['score'] 
-        crack_time = analysis['crack_times_display']['offline_fast_hashing_1e10_per_second']
-        
-        # Color Mapping Logic
+        if len(pwd) > 128:
+            self.breach_text_label.configure(text="⚠️ Password exceeds maximum length (128 chars)")
+            return
+
+        try:
+            analysis = zxcvbn(pwd)
+            score = analysis['score']
+            crack_time = analysis['crack_times_display']['offline_fast_hashing_1e10_per_second']
+        except Exception as e:
+            logger.error(f"Analysis error: {e}")
+            self.breach_text_label.configure(text="⚠️ Analysis error occurred")
+            return
+
         colors = [COLOR_NEON_RED, COLOR_NEON_RED, COLOR_NEON_YELLOW, COLOR_NEON_GREEN, COLOR_NEON_GREEN]
         labels = ["CRITICAL WEAK", "WEAK", "MODERATE RISK", "STRONG", "ENTERPRISE GRADE"]
         current_color = colors[score]
 
-        # Apply Visual Updates
         self.strength_bar.set((score + 1) / 5.0)
         self.strength_bar.configure(progress_color=current_color)
         self.status_label.configure(text=labels[score], text_color=current_color)
-        
+
         self.input_frame.configure(border_color=current_color)
         self.entry.configure(border_color=current_color)
-        self.toggle_btn.configure(border_color=current_color) # Button color syncs too
+        self.toggle_btn.configure(border_color=current_color)
 
         self.crack_time_label.configure(text=f"Crack Time:\n{crack_time}", text_color="white")
-        
+
         if analysis['feedback']['warning']:
             self.warnings_icon.configure(text="⚠️", text_color=COLOR_NEON_YELLOW)
         else:
             self.warnings_icon.configure(text="")
 
-        # Trigger Dynamic Center Elements
         self.update_center_status_alerts(score)
 
-        # Queue API Call Setup
         self.breach_text_label.configure(text="Checking breach database...⏳")
         self.api_timer = self.after(500, self.start_api_thread, pwd)
 
@@ -222,22 +245,51 @@ class ProfessionalSecurityScanner(ctk.CTk):
     # ==============================================================================
     
     def check_pwned_api(self, password):
-        sha1_password = hashlib.sha1(password.encode('utf-8')).hexdigest().upper()
-        first5_char, tail = sha1_password[:5], sha1_password[5:]
+        if not password or len(password) > 128:
+            logger.warning("Invalid password length for API check")
+            return None, 0
+
         try:
-            response = requests.get(f'https://api.pwnedpasswords.com/range/{first5_char}', timeout=3)
-            if response.status_code == 200:
-                hashes = (line.split(':') for line in response.text.splitlines())
-                for h, count in hashes:
-                    if h == tail:
-                        return True, count
-            return False, 0 
-        except:
+            sha1_password = hashlib.sha1(password.encode('utf-8')).hexdigest().upper()
+            first5_char, tail = sha1_password[:5], sha1_password[5:]
+
+            response = self.session.get(
+                f'https://api.pwnedpasswords.com/range/{first5_char}',
+                timeout=3,
+                verify=True
+            )
+            response.raise_for_status()
+
+            hashes = (line.split(':') for line in response.text.splitlines())
+            for h, count in hashes:
+                if h == tail:
+                    logger.info("Password breach detected via HIBP API")
+                    return True, count
+            return False, 0
+        except Timeout:
+            logger.error("API timeout: HIBP service unreachable")
+            return None, 0
+        except ConnectionError:
+            logger.error("Network connection error")
+            return None, 0
+        except RequestException as e:
+            logger.error(f"API request failed: {e}")
+            return None, 0
+        except Exception as e:
+            logger.error(f"Unexpected error in API check: {e}")
             return None, 0 
 
     def start_api_thread(self, pwd):
-        thread = threading.Thread(target=self.run_api_and_update, args=(pwd,), daemon=True)
-        thread.start()
+        if self.api_thread and self.api_thread.is_alive():
+            logger.debug("API thread already running, skipping")
+            return
+
+        self.api_thread = threading.Thread(
+            target=self.run_api_and_update,
+            args=(pwd,),
+            daemon=False
+        )
+        self.api_thread.start()
 
     def run_api_and_update(self, pwd):
         is_breached, count = self.check_pwned_api(pwd)
@@ -261,4 +313,9 @@ class ProfessionalSecurityScanner(ctk.CTk):
 # ==============================================================================
 if __name__ == "__main__":
     app = ProfessionalSecurityScanner()
-    app.mainloop()
+    try:
+        app.mainloop()
+    finally:
+        app.cleanup()
+        logger.info("Application closed")
+        logger.info("Application closed")
