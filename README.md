@@ -32,7 +32,7 @@ python -m venv venv
 
 source venv/bin/activate  :: for macOS/Linux-->
 
-pip install -r requrements.txt  :: Install Dependencies
+pip install -r requrements.txt  :: Install Dependencies...... 
 
 python app.py  :: Enter In your terminal and run
 
