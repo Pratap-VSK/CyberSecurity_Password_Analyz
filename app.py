@@ -34,7 +34,7 @@ ctk.set_appearance_mode("Dark")
 class ProfessionalSecurityScanner(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Pinnacle Secure | Advanced Password Intelligence")
+        self.title("Embedded Secure | Advanced Password Intelligence")
         self.geometry("700x720")
         self.configure(fg_color=COLOR_BG_DARK)
 
@@ -43,7 +43,7 @@ class ProfessionalSecurityScanner(ctk.CTk):
         self.password_visible = False
         self.session = requests.Session()
         self.session.verify = True
-        self.session.headers.update({'User-Agent': 'PinnacleSecureScanner/1.0'})
+        self.session.headers.update({'User-Agent': 'PasswordSecureScanner/1.0'})
 
         # --- Sub-Section 2.1: Header Architecture ---
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -52,7 +52,7 @@ class ProfessionalSecurityScanner(ctk.CTk):
         self.logo_label = ctk.CTkLabel(self.header_frame, text="🛡️", font=("Arial", 35), text_color=COLOR_NEON_GREEN)
         self.logo_label.pack(side="left", padx=(0, 15))
 
-        self.title_label = ctk.CTkLabel(self.header_frame, text="Pinnacle Secure Scanner", font=("Arial", 28, "bold"), text_color="white")
+        self.title_label = ctk.CTkLabel(self.header_frame, text="Embedded Secure Scanner", font=("Arial", 28, "bold"), text_color="white")
         self.title_label.pack(side="left")
 
         self.subtitle_label = ctk.CTkLabel(self, text="Real-time Password Entropy & Breach Analysis", font=("Arial", 14), text_color=COLOR_TEXT_DIM)
@@ -302,7 +302,7 @@ class ProfessionalSecurityScanner(ctk.CTk):
             self.breach_panel.configure(border_color=COLOR_NEON_RED)
         elif is_breached is False:
             self.breach_status_icon.configure(text="✅", text_color=COLOR_NEON_GREEN)
-            self.breach_text_label.configure(text="Pinnacle Safe-Check verified. No public breaches found.", text_color="white")
+            self.breach_text_label.configure(text="Embedded Safe-Check verified. No public breaches found.", text_color="white")
             self.breach_panel.configure(border_color=COLOR_NEON_GREEN)
         else: 
             self.breach_text_label.configure(text="⚠️ Network Error: Unable to scan breach database.")
